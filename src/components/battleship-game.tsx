@@ -131,7 +131,11 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   const [movesUsed, setMovesUsed] = useState(0);
   const [userId, setUserId] = useState<string | null>(null);
   const searchParams = useSearchParams();
-  const params = searchParams.get("wallet");
+  const walletParam = searchParams.get("wallet");
+  console.log("Wallet Param:", walletParam);
+  const streamUrlParam = searchParams.get("streamUrl");
+  console.log("Stream URL Param:", streamUrlParam);
+  const authTokenParam = searchParams.get("authToken");
 
   // Arena Arcade integration state
   const arenaServiceRef = useRef<ArenaGameService | null>(null);
@@ -178,6 +182,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
     stats?: ItemStat[];
     cost?: number;
   } | null>(null);
+  const [streamUrl, setStreamUrl] = useState("");
   const [blastedCells, setBlastedCells] = useState<
     Array<{ row: number; col: number; isHit: boolean; isPlayerBoard?: boolean }>
   >([]);
@@ -2218,13 +2223,22 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   const handleStartArena = async () => {
     const arena = arenaServiceRef.current;
     if (!arena) return;
+
+    const trimmedStreamUrl = streamUrl.trim();
+    if (!trimmedStreamUrl) {
+      return;
+    }
+
     setArenaLoader(true);
     try {
-      const token = authToken || localStorage.getItem("authToken") || "";
-      const streamUrl = "https://twitch.tv/empireofbits";
+      const token =
+        authToken ||
+        authTokenParam ||
+        localStorage.getItem("authToken") ||
+        "";
       console.log("Token:", token);
-      // console.log("Stream URL:", streamUrl);
-      const result = await arena.initializeGame(streamUrl, token);
+      // console.log("Stream URL:", trimmedStreamUrl);
+      const result = await arena.initializeGame(trimmedStreamUrl, token);
       setArenaLoader(false);
       if (result.success && result.data) {
         setArenaGameState(result.data);
@@ -2258,12 +2272,18 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   // Omit stream URL modal for now; updateStream function can be reintroduced with UI later
 
   useEffect(() => {
-    if (params) {
-      setUserId(params);
-      console.log(params);
-      initializeGame(params);
+    if (walletParam) {
+      setUserId(walletParam);
+      console.log(walletParam);
+      initializeGame(walletParam);
     }
-  }, [params]);
+  }, [walletParam]);
+
+  useEffect(() => {
+    if (streamUrlParam) {
+      setStreamUrl(streamUrlParam);
+    }
+  }, [streamUrlParam]);
 
   const initializeGame = async (walletAddress: string) => {
     try {
@@ -2274,7 +2294,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ walletAddress }),
+          body: JSON.stringify({ userId:walletAddress }),
         }
       );
 
@@ -2289,12 +2309,14 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   };
 
   const recordGameResult = async (won: boolean) => {
-    if (!userId) return;
-    const walletAddress = userId;
+    const walletAddress =  walletParam;
+    if (!walletAddress) return;
+
+    const userId = walletAddress;
 
     try {
       const response = await fetch(
-        `http://localhost:3001/api/v1/games/battleship/${walletAddress}/result`,
+        `http://localhost:3001/api/v1/games/battleship/${userId}/result`,
         {
           method: "POST",
           headers: {
@@ -2948,6 +2970,8 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
           monitorBoosts={monitorBoosts}
           lastGameEvent={lastGameEvent}
           itemDrops={itemDrops}
+          streamUrl={streamUrl}
+          onStreamUrlChange={setStreamUrl}
           onStartArena={handleStartArena}
           onDisconnect={handleDisconnect}
         />

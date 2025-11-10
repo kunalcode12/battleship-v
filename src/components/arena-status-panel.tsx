@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import {
   Timer,
   Play,
@@ -34,6 +34,8 @@ interface ArenaStatusPanelProps {
     timestamp: Date;
     image?: string;
   }>;
+  streamUrl: string;
+  onStreamUrlChange: (value: string) => void;
   onStartArena: () => void;
   onDisconnect: () => void;
 }
@@ -75,9 +77,28 @@ export default function ArenaStatusPanel({
   monitorBoosts,
   lastGameEvent,
   itemDrops,
+  streamUrl,
+  onStreamUrlChange,
   onStartArena,
   onDisconnect,
 }: ArenaStatusPanelProps) {
+  const [isStreamModalOpen, setIsStreamModalOpen] = useState(false);
+  const [draftStreamUrl, setDraftStreamUrl] = useState(streamUrl);
+
+  const openStreamModal = () => {
+    setDraftStreamUrl(streamUrl);
+    setIsStreamModalOpen(true);
+  };
+
+  const closeStreamModal = () => {
+    setIsStreamModalOpen(false);
+  };
+
+  const saveStreamUrl = () => {
+    onStreamUrlChange(draftStreamUrl.trim());
+    setIsStreamModalOpen(false);
+  };
+
   return (
     <div className="mb-4 w-full">
       <div className={`border rounded p-3 ${statusBoxClass(statusLabel)}`}>
@@ -107,12 +128,20 @@ export default function ArenaStatusPanel({
               </span>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={openStreamModal}
+              className="w-full sm:min-w-[14rem] sm:flex-1 border rounded px-3 py-2 text-left bg-white hover:bg-gray-50 whitespace-nowrap overflow-hidden text-ellipsis"
+              title="Click to edit stream URL"
+            >
+              {streamUrl?.trim()?.length ? streamUrl : "Enter stream URL"}
+            </button>
             {!arenaGameState && (
               <Button
                 size="sm"
                 onClick={onStartArena}
-                disabled={arenaLoader}
+                disabled={arenaLoader || streamUrl.trim().length === 0}
               >
                 {arenaLoader ? "Connecting..." : "Start Arena"}
               </Button>
@@ -127,6 +156,39 @@ export default function ArenaStatusPanel({
               </Button>
             )}
           </div>
+
+          {isStreamModalOpen && (
+            <div
+              className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={closeStreamModal}
+            >
+              <div
+                className="bg-white rounded-lg shadow-lg w-full max-w-md p-4"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="text-lg font-semibold mb-2">Edit Stream URL</div>
+                <input
+                  autoFocus
+                  value={draftStreamUrl}
+                  onChange={(e) => setDraftStreamUrl(e.target.value)}
+                  placeholder="https://twitch.tv/..."
+                  className="w-full border rounded px-3 py-2 mb-3"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={closeStreamModal}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={saveStreamUrl}
+                    disabled={draftStreamUrl.trim().length === 0}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {showArenaPanel && (
