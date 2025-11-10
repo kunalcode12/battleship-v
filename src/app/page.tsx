@@ -3,15 +3,22 @@ import BattleshipGame from "@/components/battleship-game";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function Home() {
+function GameWrapper() {
   const searchParams = useSearchParams();
   const authToken = searchParams.get("authToken") || undefined;
-  localStorage.setItem("authToken", authToken || "");
+  
+  if (typeof window !== "undefined") {
+    localStorage.setItem("authToken", authToken || "");
+  }
 
+  return <BattleshipGame authToken={authToken} />;
+}
+
+export default function Home() {
   return (
     <main className="min-h-screen flex flex-col items-center p-4 bg-slate-100">
       <Suspense fallback={<p>Loading game...</p>}>
-        <BattleshipGame authToken={authToken} />
+        <GameWrapper />
       </Suspense>
     </main>
   );

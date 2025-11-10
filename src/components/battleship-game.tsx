@@ -129,7 +129,6 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   const [showPopup, setShowPopup] = useState(false);
   const [pointsEarned, setPointsEarned] = useState(0);
   const [movesUsed, setMovesUsed] = useState(0);
-  const [userId, setUserId] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const walletParam = searchParams.get("wallet");
   console.log("Wallet Param:", walletParam);
@@ -2273,7 +2272,6 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
 
   useEffect(() => {
     if (walletParam) {
-      setUserId(walletParam);
       console.log(walletParam);
       initializeGame(walletParam);
     }
