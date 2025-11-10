@@ -2231,10 +2231,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
     setArenaLoader(true);
     try {
       const token =
-        authToken ||
-        authTokenParam ||
-        localStorage.getItem("authToken") ||
-        "";
+        authToken || authTokenParam || localStorage.getItem("authToken") || "";
       console.log("Token:", token);
       // console.log("Stream URL:", trimmedStreamUrl);
       const result = await arena.initializeGame(trimmedStreamUrl, token);
@@ -2286,13 +2283,13 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   const initializeGame = async (walletAddress: string) => {
     try {
       const response = await fetch(
-        "http://localhost:3001/api/v1/games/battleship",
+        "https://backend.empireofbits.fun/api/v1/games/battleship",
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ userId:walletAddress }),
+          body: JSON.stringify({ userId: walletAddress }),
         }
       );
 
@@ -2307,14 +2304,14 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   };
 
   const recordGameResult = async (won: boolean) => {
-    const walletAddress =  walletParam;
+    const walletAddress = walletParam;
     if (!walletAddress) return;
 
     const userId = walletAddress;
 
     try {
       const response = await fetch(
-        `http://localhost:3001/api/v1/games/battleship/${userId}/result`,
+        `https://backend.empireofbits.fun/api/v1/games/battleship/${userId}/result`,
         {
           method: "POST",
           headers: {
