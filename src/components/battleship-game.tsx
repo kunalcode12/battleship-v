@@ -2353,7 +2353,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
       pointsEarned: pointsEarned.toString(),
     });
 
-    window.location.href = `http://localhost:3000/?${params.toString()}`;
+    window.location.href = `https://empireofbits.fun/?${params.toString()}`;
   };
 
   const playSound = (sound: HTMLAudioElement | null) => {
