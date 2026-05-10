@@ -5,7 +5,7 @@ import { AnimatePresence } from "framer-motion";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { TouchBackend } from "react-dnd-touch-backend";
-import { RefreshCw, RotateCw } from "lucide-react";
+import { ExternalLink, RefreshCw, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
@@ -149,6 +149,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   const [timeUntilReset, setTimeUntilReset] = useState<number | null>(null);
   const [showArenaPanel, setShowArenaPanel] = useState(false);
   const [arenaLoader, setArenaLoader] = useState(false);
+  const [showStreamerRoleModal, setShowStreamerRoleModal] = useState(false);
   const [monitorEvents, setMonitorEvents] = useState<
     { type: string; data: unknown; timestamp: Date }[]
   >([]);
@@ -2242,6 +2243,13 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
         console.log("Arena Ready", result.data.gameId);
       } else {
         console.error("Arena Init Failed", result.error || "Unknown error");
+        const msg = (result.error || "").toLowerCase();
+        if (
+          msg.includes("streamer role") ||
+          msg.includes("active streamer")
+        ) {
+          setShowStreamerRoleModal(true);
+        }
       }
     } catch (e: unknown) {
       setArenaLoader(false);
@@ -2988,6 +2996,55 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
             <div className="bg-red-600 text-white px-6 py-3 rounded-lg shadow-lg text-lg font-semibold animate-pulse flex items-center gap-2">
               <span>⚠️</span>
               <span>Game Session Ended</span>
+            </div>
+          </div>
+        )}
+
+        {/* Arena: streamer role required (403 from sessions API) */}
+        {showStreamerRoleModal && (
+          <div
+            className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowStreamerRoleModal(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="streamer-role-modal-title"
+          >
+            <div
+              className="bg-white rounded-lg shadow-lg w-full max-w-md p-5 text-left"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2
+                id="streamer-role-modal-title"
+                className="text-lg font-semibold text-gray-900 mb-2"
+              >
+                Enable streamer mode
+              </h2>
+              <p className="text-sm text-gray-700 mb-4">
+                Arena needs an active streamer role on your account. Open{" "}
+                <span className="font-medium">vorld.tv</span>, go to your{" "}
+                <span className="font-medium">profile</span>, and turn on{" "}
+                <span className="font-medium">streamer mode</span>. Then try
+                starting Arena again. You can keep playing Battleship as usual.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
+                <Button variant="outline" size="sm" asChild>
+                  <a
+                    href="https://vorld.tv/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1"
+                  >
+                    Open vorld.tv
+                    <ExternalLink className="size-4 shrink-0" aria-hidden />
+                  </a>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setShowStreamerRoleModal(false)}
+                >
+                  Close
+                </Button>
+              </div>
             </div>
           </div>
         )}

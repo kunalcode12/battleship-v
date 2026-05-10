@@ -374,10 +374,18 @@ export class ArenaGameService {
         data: this.gameState ?? undefined,
       };
     } catch (error: unknown) {
-      const err = error as AxiosError<{ message?: string }>;
+      const err = error as AxiosError<{
+        message?: string;
+        error?: { message?: string; code?: string };
+      }>;
+      const body = err.response?.data;
+      const nested =
+        typeof body?.error?.message === "string" ? body.error.message : "";
+      const top =
+        typeof body?.message === "string" ? body.message : "";
       return {
         success: false,
-        error: err.response?.data?.message || "Failed to initialize game",
+        error: nested || top || "Failed to initialize game",
       };
     }
   }
