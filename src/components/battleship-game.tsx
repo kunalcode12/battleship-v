@@ -2283,7 +2283,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
   const initializeGame = async (walletAddress: string) => {
     try {
       const response = await fetch(
-        "https://backend.empireofbits.fun/api/v1/games/battleship",
+        "https://backend-em-b0an.onrender.com/api/v1/games/battleship",
         {
           method: "POST",
           headers: {
@@ -2311,7 +2311,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
 
     try {
       const response = await fetch(
-        `https://backend.empireofbits.fun/api/v1/games/battleship/${userId}/result`,
+        `https://backend-em-b0an.onrender.com/api/v1/games/battleship/${userId}/result`,
         {
           method: "POST",
           headers: {
@@ -2353,7 +2353,7 @@ export default function BattleshipGame({ authToken }: BattleshipGameProps) {
       pointsEarned: pointsEarned.toString(),
     });
 
-    window.location.href = `https://empireofbits.fun/?${params.toString()}`;
+    window.location.href = `https://empireofbits.xyz/?${params.toString()}`;
   };
 
   const playSound = (sound: HTMLAudioElement | null) => {

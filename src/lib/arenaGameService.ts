@@ -1,9 +1,113 @@
 import { io, Socket } from "socket.io-client";
 import axios, { AxiosError } from "axios";
 
-const GAME_API_URL = "https://dev.reactive.thevorld.com/api";
+const ARENA_SERVER_URL = "wss://dev.reactive.thevorld.com";
+const WEBSOCKET_URL = "https://dev.reactive.thevorld.com";
+const GAME_API_URL = "https://dev.reactive.thevorld.com/api/v1";
 const VORLD_APP_ID = "app_mgs5crer_51c332b3";
 const ARENA_GAME_ID = "arcade_mgs5dyjd_232b1df7";
+type IsoTimestamp = string;
+
+export type SessionStartedEvent = {
+  sessionId: string;
+  timestamp?: IsoTimestamp;
+};
+
+export type CountdownEvent = {
+  sessionId: string;
+  secondsRemaining: number;
+  phase: string;
+  timestamp: IsoTimestamp;
+};
+
+export type ArenaToggledEvent = {
+  sessionId: string;
+  arenaActive: boolean;
+  timestamp?: IsoTimestamp;
+};
+
+export type BoostActivatedEvent = {
+  type: "boost_activated";
+  sessionId: string;
+  actorId: string;
+  actorName: string;
+  username: string;
+  amount: number;
+  totalPoints: number;
+  timestamp: IsoTimestamp;
+};
+
+export type ImmediateItemDropEvent = {
+  type: "immediate_item_drop";
+  sessionId: string;
+  itemId: string;
+  itemName: string;
+  targetActorId: string;
+  targetActorName: string;
+  purchaserUsername: string;
+  cost: number;
+  inputMode: string;
+  content: string | null;
+  timestamp: IsoTimestamp;
+};
+
+export type EventTriggeredEvent = {
+  sessionId: string;
+  eventId: string;
+  name: string;
+  targetActorId?: string;
+  targetActorName?: string;
+  isFinal: boolean;
+  triggeredBy: string;
+  timestamp: IsoTimestamp;
+};
+
+export type SessionEndedReason =
+  | "time_expired"
+  | "final_event"
+  | "manual_stop"
+  | "cancelled";
+
+export type SessionEndedEvent = {
+  sessionId: string;
+  reason: SessionEndedReason;
+  winnerActorId?: string;
+  winnerActorName?: string;
+  finalScores: Record<string, number>;
+  timestamp: IsoTimestamp;
+};
+
+export type PackageUnlockedEvent = {
+  type: "package_unlocked";
+  sessionId: string;
+  packageId: string;
+  packageName: string;
+  actorId: string;
+  actorName: string;
+  unlockedAtPoints: number;
+  threshold: number;
+  timestamp: IsoTimestamp;
+};
+
+export type OverlayVariant = {
+  id: string;
+  name: string;
+};
+
+export type OverlayChangedEvent = {
+  sessionId: string;
+  variantId: string;
+  variant: OverlayVariant;
+  changedBy: string;
+  isLocked: boolean;
+  timestamp: IsoTimestamp;
+};
+
+export type CreateSessionRequest = {
+  gameConfigId: string;
+  streamUrl: string;
+  sessionTitle?: string;
+};
 
 export interface GamePlayer {
   id: string;
@@ -61,12 +165,17 @@ export interface EvaGameDetails {
 
 export interface GameState {
   gameId: string;
+  sessionId?: string;
   expiresAt: string;
-  status: "pending" | "active" | "completed" | "cancelled";
+  status: "pending" | "waiting" | "active" | "completed" | "cancelled";
   websocketUrl: string;
   evaGameDetails: EvaGameDetails;
   arenaActive: boolean;
   countdownStarted: boolean;
+  sessionTitle?: string | null;
+  streamerUsername?: string | null;
+  viewerCount?: number;
+  totalCoinsSpent?: number;
 }
 
 export interface BoostData {
@@ -90,6 +199,118 @@ export class ArenaGameService {
   private gameState: GameState | null = null;
   private userToken: string = "";
 
+  private authHeaders(token: string) {
+    return {
+      Authorization: `Bearer ${token}`,
+      "X-Arena-Arcade-Game-ID": ARENA_GAME_ID,
+      "X-Vorld-App-ID": VORLD_APP_ID,
+      "Content-Type": "application/json",
+    };
+  }
+
+  private createSession(data: CreateSessionRequest, token: string) {
+    return axios.post(`${GAME_API_URL}/sessions`, data, {
+      headers: this.authHeaders(token),
+    });
+  }
+
+  private getSession(id: string, token: string) {
+    return axios.get(`${GAME_API_URL}/sessions/${id}`, {
+      headers: this.authHeaders(token),
+    });
+  }
+
+  private updateSessionStatus(
+    sessionId: string,
+    status: "completed" | "cancelled" | "aborted",
+    token: string
+  ) {
+    return axios.patch(
+      `${GAME_API_URL}/sessions/${sessionId}/status`,
+      { status },
+      { headers: this.authHeaders(token) }
+    );
+  }
+
+  private normalizeBoostPayload(data: BoostActivatedEvent | Record<string, unknown>) {
+    return {
+      ...data,
+      boostAmount: Number(
+        (data as Record<string, unknown>)?.boostAmount ??
+          (data as Record<string, unknown>)?.amount ??
+          0
+      ),
+      playerName:
+        ((data as Record<string, unknown>)?.playerName as string | undefined) ??
+        ((data as Record<string, unknown>)?.actorName as string | undefined) ??
+        "Viewer",
+      playerId:
+        ((data as Record<string, unknown>)?.playerId as string | undefined) ??
+        ((data as Record<string, unknown>)?.actorId as string | undefined),
+      boosterUsername:
+        ((data as Record<string, unknown>)?.boosterUsername as string | undefined) ??
+        ((data as Record<string, unknown>)?.username as string | undefined),
+      playerTotalPoints:
+        ((data as Record<string, unknown>)?.playerTotalPoints as number | undefined) ??
+        ((data as Record<string, unknown>)?.totalPoints as number | undefined),
+      currentCyclePoints:
+        Number(
+          (data as Record<string, unknown>)?.currentCyclePoints ??
+            (data as Record<string, unknown>)?.boostAmount ??
+            (data as Record<string, unknown>)?.amount ??
+            0
+        ) || 0,
+    };
+  }
+
+  private normalizeImmediateDropPayload(
+    data: ImmediateItemDropEvent | Record<string, unknown>
+  ) {
+    const source = data as Record<string, unknown>;
+    return {
+      ...source,
+      targetPlayerName:
+        (source.targetPlayerName as string | undefined) ??
+        (source.targetActorName as string | undefined),
+      targetPlayer:
+        (source.targetPlayer as string | undefined) ??
+        (source.targetActorId as string | undefined),
+      item: {
+        id: source.itemId as string | undefined,
+        name: source.itemName as string | undefined,
+      },
+      package: {
+        id: source.itemId as string | undefined,
+        name: source.itemName as string | undefined,
+        cost: Number(source.cost ?? 0),
+      },
+    };
+  }
+
+  private mapSessionToGameState(session: Record<string, unknown>): GameState {
+    const id = (session?.id as string | undefined) ?? "";
+    return {
+      gameId: id,
+      sessionId: id,
+      expiresAt: (session?.expiresAt as string | undefined) ?? "",
+      status:
+        ((session?.status as GameState["status"] | undefined) ?? "pending"),
+      websocketUrl:
+        (session?.websocketUrl as string | undefined) ??
+        WEBSOCKET_URL ??
+        ARENA_SERVER_URL,
+      evaGameDetails:
+        (session?.evaGameDetails as EvaGameDetails | undefined) ??
+        ({} as EvaGameDetails),
+      arenaActive: Boolean(session?.arenaActive),
+      countdownStarted: Boolean(session?.countdownStartedAt),
+      sessionTitle: (session?.sessionTitle as string | undefined) ?? null,
+      streamerUsername: (session?.streamerUsername as string | undefined) ?? null,
+      viewerCount: Number(session?.viewerCount ?? 0),
+      totalCoinsSpent: Number(session?.totalCoinsSpent ?? 0),
+    };
+  }
+
   // Initialize game with stream URL
   async initializeGame(
     streamUrl: string,
@@ -97,28 +318,53 @@ export class ArenaGameService {
   ): Promise<{ success: boolean; data?: GameState; error?: string }> {
     try {
       this.userToken = userToken;
-      console.log("User Token:", this.userToken);
-      console.log("Stream URL:", streamUrl);
 
-      const response = await axios.post(
-        `${GAME_API_URL}/games/init`,
+      const response = await this.createSession(
         {
+          gameConfigId: ARENA_GAME_ID,
           streamUrl,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${userToken}`,
-            "X-Arena-Arcade-Game-ID": ARENA_GAME_ID,
-            "X-Vorld-App-ID": VORLD_APP_ID,
-            "Content-Type": "application/json",
-          },
-        }
+        userToken
       );
-      console.log("response initializeGame", response);
 
-      this.gameState = response.data.data;
+      const session =
+        (response?.data as Record<string, unknown>)?.session ??
+        ((response?.data as Record<string, unknown>)?.data as Record<string, unknown> | undefined)
+          ?.session ??
+        (response?.data as Record<string, unknown>)?.data ??
+        (response?.data as Record<string, unknown>);
+      const sessionId = (session as Record<string, unknown> | undefined)?.id as
+        | string
+        | undefined;
+      let latestSession = session as Record<string, unknown>;
 
-      // Connect to WebSocket
+      if (sessionId) {
+        try {
+          const latestResponse = await this.getSession(sessionId, userToken);
+          latestSession =
+            ((latestResponse?.data as Record<string, unknown>)?.session as Record<
+              string,
+              unknown
+            >) ??
+            (((latestResponse?.data as Record<string, unknown>)?.data as Record<
+              string,
+              unknown
+            > | undefined)?.session as Record<string, unknown>) ??
+            ((latestResponse?.data as Record<string, unknown>)?.data as Record<
+              string,
+              unknown
+            >) ??
+            ((latestResponse?.data as Record<string, unknown>) as Record<
+              string,
+              unknown
+            >);
+        } catch (detailError) {
+          console.error("Failed to fetch latest session details:", detailError);
+        }
+      }
+
+      this.gameState = this.mapSessionToGameState(latestSession ?? {});
+
       if (this.gameState?.websocketUrl) {
         await this.connectWebSocket();
       }
@@ -138,8 +384,8 @@ export class ArenaGameService {
 
   private async connectWebSocket(): Promise<boolean> {
     try {
-      if (!this.gameState?.websocketUrl) {
-        console.error("No WebSocket URL provided");
+      if (!this.gameState?.sessionId) {
+        console.error("Session ID is not set");
         return false;
       }
 
@@ -149,43 +395,8 @@ export class ArenaGameService {
         this.socket = null;
       }
 
-      const providedUrl = "https://dev.reactive.thevorld.com/";
-      console.log("Original WebSocket URL:", providedUrl);
-
-      let wsUrl: string;
-      let socketPath = "/socket.io/"; // Default Socket.IO path
-
-      try {
-        const parsed = new URL(providedUrl);
-
-        // Convert ws/wss to http/https for Socket.IO client
-        const protocol = parsed.protocol === "wss:" ? "https:" : "http:";
-
-        // Extract the base URL (protocol + host)
-        wsUrl = `${protocol}//${parsed.host}`;
-
-        // If there's a custom path (like /ws/gameId), extract it
-        if (
-          parsed.pathname &&
-          parsed.pathname !== "/" &&
-          parsed.pathname !== "/socket.io/"
-        ) {
-          socketPath = parsed.pathname.endsWith("/")
-            ? parsed.pathname
-            : `${parsed.pathname}/`;
-        }
-
-        console.log("Parsed WebSocket URL:", wsUrl);
-        console.log("Socket.IO Path:", socketPath);
-      } catch (e) {
-        console.error("Failed to parse WebSocket URL:", e);
-        return false;
-      }
-
-      // Create Socket.IO connection
-      this.socket = io(wsUrl, {
-        path: socketPath,
-        transports: ["websocket", "polling"],
+      this.socket = io(WEBSOCKET_URL, {
+        transports: ["websocket"],
         timeout: 30000,
         reconnection: true,
         reconnectionDelay: 1000,
@@ -193,11 +404,6 @@ export class ArenaGameService {
         reconnectionDelayMax: 5000,
         auth: {
           token: this.userToken,
-          appId: VORLD_APP_ID,
-        },
-        extraHeaders: {
-          "X-Arena-Arcade-Game-ID": ARENA_GAME_ID,
-          "X-Vorld-App-ID": VORLD_APP_ID,
         },
       });
 
@@ -230,71 +436,156 @@ export class ArenaGameService {
 
   // Set up WebSocket event listeners
   private setupEventListeners(): void {
-    if (!this.gameState?.gameId) {
-      console.error("Game ID is not set");
+    if (!this.gameState?.sessionId) {
+      console.error("Session ID is not set");
       return;
     }
 
-    this.socket?.emit("join_game", this.gameState?.gameId);
+    this.socket?.on("connect", () => {
+      this.socket?.emit("join_session", { sessionId: this.gameState?.sessionId });
+    });
 
-    // Arena Events
-    this.socket?.on("arena_countdown_started", (data: unknown) => {
+    this.socket?.on("connect_error", (error: Error) => {
+      console.error("WebSocket connect error:", error.message);
+    });
+
+    this.socket?.on("disconnect", (reason: string) => {
+      console.log("WebSocket disconnected:", reason);
+    });
+
+    this.socket?.on("session_started", (data: SessionStartedEvent) => {
       this.onArenaCountdownStarted?.(data);
-      console.log("Arena countdown started:", data);
+      console.log("Session started:", data.sessionId);
     });
 
-    this.socket?.on("countdown_update", (data: unknown) => {
+    this.socket?.on("countdown", (data: CountdownEvent) => {
       this.onCountdownUpdate?.(data);
-      console.log("Countdown update:", data);
+      console.log("Countdown:", data.secondsRemaining, data.phase);
     });
 
-    this.socket?.on("arena_begins", (data: unknown) => {
-      this.onArenaBegins?.(data);
-      console.log("Arena begins:", data);
+    this.socket?.on("arena_toggled", (data: ArenaToggledEvent) => {
+      if (data.arenaActive) {
+        this.onArenaBegins?.(data);
+      }
+      console.log("Arena:", data.arenaActive);
     });
 
-    // Boost Events
-    this.socket?.on("player_boost_activated", (data: unknown) => {
-      this.onPlayerBoostActivated?.(data);
-      console.log("Player boost activated:", data);
+    this.socket?.on("boost_activated", (data: BoostActivatedEvent) => {
+      this.onPlayerBoostActivated?.(this.normalizeBoostPayload(data));
+      console.log(
+        "Boost:",
+        data.actorName,
+        "+",
+        data.amount,
+        "points=",
+        data.totalPoints
+      );
     });
 
-    this.socket?.on("boost_cycle_update", (data: unknown) => {
+    this.socket?.on("boost_cycle_update", (data: Record<string, unknown>) => {
       console.log("Boost cycle update:", data);
       this.onBoostCycleUpdate?.(data);
     });
 
-    this.socket?.on("boost_cycle_complete", (data: unknown) => {
+    this.socket?.on("boost_cycle_complete", (data: Record<string, unknown>) => {
       console.log("Boost cycle complete:", data);
       this.onBoostCycleComplete?.(data);
     });
 
-    // Package Events
-    this.socket?.on("package_drop", (data: unknown) => {
-      console.log("Package drop:", data);
-      this.onPackageDrop?.(data);
+    this.socket?.on("immediate_item_drop", (data: ImmediateItemDropEvent) => {
+      console.log(
+        "Drop:",
+        data.itemName,
+        "->",
+        data.targetActorName,
+        "by",
+        data.purchaserUsername
+      );
+      this.onImmediateItemDrop?.(this.normalizeImmediateDropPayload(data));
     });
 
-    this.socket?.on("immediate_item_drop", (data: unknown) => {
-      console.log("Immediate item drop:", data);
-      this.onImmediateItemDrop?.(data);
-    });
-
-    // Game Events
-    this.socket?.on("event_triggered", (data: unknown) => {
+    this.socket?.on("event_triggered", (data: EventTriggeredEvent) => {
+      console.log(
+        "Event:",
+        data.name,
+        "target=",
+        data.targetActorName ?? data.targetActorId ?? "global"
+      );
       this.onEventTriggered?.(data);
     });
 
-    this.socket?.on("player_joined", (data: unknown) => {
-      this.onPlayerJoined?.(data);
+    this.socket?.on("session_ended", (data: SessionEndedEvent) => {
+      console.log("Game over:", data.reason, data.winnerActorName, data.finalScores);
+      this.onGameCompleted?.(data);
+      if (data.reason === "manual_stop" || data.reason === "cancelled") {
+        this.onGameStopped?.(data);
+      }
     });
 
-    this.socket?.on("game_completed", (data: unknown) => {
+    this.socket?.on("package_unlocked", (data: PackageUnlockedEvent) => {
+      console.log(
+        "Unlocked:",
+        data.packageName,
+        "for",
+        data.actorName,
+        "@",
+        data.threshold
+      );
+      this.onPackageDrop?.({
+        ...data,
+        packageName: data.packageName,
+        playerName: data.actorName,
+        playerPackageDrops: [
+          {
+            playerName: data.actorName,
+            playerPoints: data.unlockedAtPoints,
+            eligiblePackages: [
+              {
+                name: data.packageName,
+                cost: data.threshold,
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    this.socket?.on("overlay_changed", (data: OverlayChangedEvent) => {
+      console.log("Overlay:", data.variant.name, "locked=", data.isLocked);
+    });
+
+    // Legacy aliases for existing UI compatibility
+    this.socket?.on("game_start", (data: SessionStartedEvent) => {
+      this.onArenaCountdownStarted?.(data);
+      console.log("Session started (legacy):", data.sessionId);
+    });
+
+    this.socket?.on("game_completed", (data: SessionEndedEvent) => {
       this.onGameCompleted?.(data);
+      console.log("Game over (legacy):", data.reason, data.finalScores);
+    });
+
+    this.socket?.on("countdown_update", (data: CountdownEvent) => {
+      this.onCountdownUpdate?.(data);
+      console.log("Countdown (legacy):", data.secondsRemaining, data.phase);
+    });
+
+    this.socket?.on("player_boost_activated", (data: BoostActivatedEvent) => {
+      this.onPlayerBoostActivated?.(this.normalizeBoostPayload(data));
+      console.log("Boost (legacy):", data.actorName, "+", data.amount);
+    });
+
+    this.socket?.on("package_drop", (data: ImmediateItemDropEvent) => {
+      this.onPackageDrop?.(data);
+      console.log("Drop (legacy):", data.itemName, "->", data.targetActorName);
     });
 
     this.socket?.on("game_stopped", (data: unknown) => {
       this.onGameStopped?.(data);
+    });
+
+    this.socket?.on("player_joined", (data: unknown) => {
+      this.onPlayerJoined?.(data);
     });
   }
 
@@ -303,17 +594,17 @@ export class ArenaGameService {
     gameId: string
   ): Promise<{ success: boolean; data?: GameState; error?: string }> {
     try {
-      const response = await axios.get(`${GAME_API_URL}/games/${gameId}`, {
-        headers: {
-          Authorization: `Bearer ${this.userToken}`,
-          "X-Arena-Arcade-Game-ID": ARENA_GAME_ID,
-          "X-Vorld-App-ID": VORLD_APP_ID,
-        },
-      });
+      const response = await this.getSession(gameId, this.userToken);
+      const session =
+        (response?.data as Record<string, unknown>)?.session ??
+        ((response?.data as Record<string, unknown>)?.data as Record<string, unknown> | undefined)
+          ?.session ??
+        (response?.data as Record<string, unknown>)?.data ??
+        (response?.data as Record<string, unknown>);
 
       return {
         success: true,
-        data: response.data.data,
+        data: this.mapSessionToGameState((session as Record<string, unknown>) ?? {}),
       };
     } catch (error: unknown) {
       const err = error as AxiosError<{ message?: string }>;
@@ -538,6 +829,13 @@ export class ArenaGameService {
 
   // Disconnect from WebSocket
   disconnect(): void {
+    if (this.gameState?.sessionId && this.userToken) {
+      this.updateSessionStatus(this.gameState.sessionId, "cancelled", this.userToken).catch(
+        (error) => {
+          console.error("Failed to update session status during disconnect:", error);
+        }
+      );
+    }
     this.socket?.disconnect();
     this.socket = null;
     this.gameState = null;
